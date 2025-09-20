@@ -50,10 +50,10 @@ def save_prev_values(file_path, price, fx):
 # 1) Load env & config
 # --------------------------
 load_dotenv()
-access_token = os.getenv("PAT")
+access_token = os.getenv("YNAB_ACCESS_TOKEN")
 
-BUDGET_ID = "ee92cdb7-0081-4dc5-8e04-4f3f2c386d74"
-S27_INDEX_ACCOUNT_ID = "8d74bce4-3b5f-41eb-bb9d-976c62ba4a2b"
+BUDGET_ID = os.getenv("BUDGET_ID")
+S27_INDEX_ACCOUNT_ID = os.getenv("S27_IDX_ID")
 S27_SHARES_OWN = 54
 
 configuration = ynab.Configuration(access_token=access_token)
