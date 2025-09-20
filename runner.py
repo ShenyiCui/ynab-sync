@@ -46,8 +46,8 @@ def run_both():
     run_212_trading()
 
 # --- Schedule jobs (UK time) ---
-schedule.every().day.at("23:59").do(run_s27)
-schedule.every().day.at("23:59").do(run_212_trading)
+schedule.every().day.at("14:10").do(run_s27)
+schedule.every().day.at("14:10").do(run_212_trading)
 
 # --- Flask web service ---
 app = Flask(__name__)
@@ -82,5 +82,5 @@ threading.Thread(target=run_scheduler, daemon=True).start()
 
 # --- Start Flask server ---
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Render sets $PORT
+    port = int(os.environ.get("PORT", 9000))  # Render sets $PORT
     app.run(host="0.0.0.0", port=port)
