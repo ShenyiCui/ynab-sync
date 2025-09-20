@@ -9,7 +9,7 @@ import pytz
 # --------------------------
 # 0) Persistent storage
 # --------------------------
-PREV_FILE = "prev_values.txt"
+PREV_FILE = "./s27/prev_values.txt"
 
 def read_prev_values(file_path):
     if not os.path.exists(file_path):
