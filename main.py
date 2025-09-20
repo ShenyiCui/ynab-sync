@@ -1,0 +1,138 @@
+import os
+from dotenv import load_dotenv
+import ynab
+from ynab.models.post_transactions_wrapper import PostTransactionsWrapper
+from ynab.models.save_transactions_response import SaveTransactionsResponse
+import yfinance as yf
+from datetime import datetime, timezone, date
+
+# --------------------------
+# 0) Persistent storage
+# --------------------------
+PREV_FILE = "prev_values.txt"
+
+def read_prev_values(file_path):
+    if not os.path.exists(file_path):
+        return None, None
+    with open(file_path, "r") as f:
+        lines = f.readlines()
+        if len(lines) >= 2:
+            prev_price = float(lines[0].strip())
+            prev_fx = float(lines[1].strip())
+            return prev_price, prev_fx
+    return None, None
+
+def save_prev_values(file_path, price, fx):
+    with open(file_path, "w") as f:
+        f.write(f"{price}\n{fx}\n")
+
+# --------------------------
+# 1) Load env & config
+# --------------------------
+load_dotenv()
+access_token = os.getenv("PAT")
+
+BUDGET_ID = "ee92cdb7-0081-4dc5-8e04-4f3f2c386d74"
+S27_INDEX_ACCOUNT_ID = "8d74bce4-3b5f-41eb-bb9d-976c62ba4a2b"
+S27_SHARES_OWN = 54
+
+configuration = ynab.Configuration(access_token=access_token)
+
+# --------------------------
+# 2) Fetch market data
+# --------------------------
+ticker = yf.Ticker("S27.SI")
+info = ticker.info
+last_price = info.get("regularMarketPrice")  # USD
+timestamp = info.get("regularMarketTime")
+date_fetched = datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp else datetime.now(timezone.utc)
+
+fx_ticker = yf.Ticker("GBPUSD=X")
+fx_info = fx_ticker.info
+gbp_usd_rate = fx_info.get("regularMarketPrice")  # USD per GBP
+
+# --------------------------
+# 3) Fetch current YNAB S27 balance
+# --------------------------
+with ynab.ApiClient(configuration) as api_client:
+    accounts_api = ynab.AccountsApi(api_client)
+    s27_accounts_response = accounts_api.get_account_by_id(BUDGET_ID, S27_INDEX_ACCOUNT_ID)
+    s27_account_balance_gbp = s27_accounts_response.data.account.balance / 1000.0
+
+# --------------------------
+# 4) Read previous values
+# --------------------------
+prev_price_usd, prev_gbp_usd_rate = read_prev_values(PREV_FILE)
+if prev_price_usd is None or prev_gbp_usd_rate is None:
+    prev_price_usd = last_price
+    prev_gbp_usd_rate = gbp_usd_rate
+
+# --------------------------
+# 5) Compute totals & diffs
+# --------------------------
+shares = S27_SHARES_OWN
+
+P_prev = float(prev_price_usd)
+R_prev = float(prev_gbp_usd_rate)
+P_curr = float(last_price)
+R_curr = float(gbp_usd_rate)
+
+price_effect_gbp = shares * (P_curr - P_prev) / R_curr
+fx_effect_gbp = shares * P_prev * (1.0 / R_curr - 1.0 / R_prev)
+
+txn_date = date.today().isoformat()
+
+# --------------------------
+# 6) Safety check before creating transactions
+# --------------------------
+MIN_GBP = 0.01  # Minimum threshold to log a transaction
+
+if abs(price_effect_gbp) < MIN_GBP and abs(fx_effect_gbp) < MIN_GBP:
+    print("Both price and FX effects are negligible. No transactions created.")
+else:
+    transactions = []
+    if abs(price_effect_gbp) >= MIN_GBP:
+        transactions.append({
+            "account_id": S27_INDEX_ACCOUNT_ID,
+            "date": txn_date,
+            "amount": int(price_effect_gbp * 1000),  # milliunits
+            "payee_name": "Stock",
+            "memo": f"Price: USD {P_curr:.2f} DT: {date_fetched.strftime('%d/%m/%Y %H:%M')}"
+        })
+
+    if abs(fx_effect_gbp) >= MIN_GBP:
+        transactions.append({
+            "account_id": S27_INDEX_ACCOUNT_ID,
+            "date": txn_date,
+            "amount": int(fx_effect_gbp * 1000),  # milliunits
+            "payee_name": "USD-GBP FX",
+            "memo": f"USD/GBP: {R_curr:.5f}"
+        })
+
+    wrapper = PostTransactionsWrapper(transactions=transactions)
+
+    with ynab.ApiClient(configuration) as api_client:
+        transactions_api = ynab.TransactionsApi(api_client)
+        try:
+            response = transactions_api.create_transaction(BUDGET_ID, wrapper)
+            print("Transactions successfully created:")
+            print(response)
+        except Exception as e:
+            print("Error creating transactions:", e)
+
+# --------------------------
+# 7) Save current values for next run
+# --------------------------
+save_prev_values(PREV_FILE, last_price, gbp_usd_rate)
+
+# --------------------------
+# 8) Print summary
+# --------------------------
+print("\nSummary:")
+print(f"last_price (USD): {last_price}")
+print(f"date_fetched (UTC): {date_fetched.isoformat()}")
+print(f"total_value_usd: {shares * P_curr:.2f}")
+print(f"total_value_gbp: {shares * P_curr / R_curr:.2f}")
+print(f"current_ynab_gbp: {s27_account_balance_gbp:.2f}")
+print(f"price_effect_gbp: {price_effect_gbp:.2f}")
+print(f"fx_effect_gbp: {fx_effect_gbp:.2f}")
