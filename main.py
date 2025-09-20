@@ -2,9 +2,9 @@ import os
 from dotenv import load_dotenv
 import ynab
 from ynab.models.post_transactions_wrapper import PostTransactionsWrapper
-from ynab.models.save_transactions_response import SaveTransactionsResponse
 import yfinance as yf
 from datetime import datetime, timezone, date
+import pytz
 
 # --------------------------
 # 0) Persistent storage
@@ -45,7 +45,13 @@ ticker = yf.Ticker("S27.SI")
 info = ticker.info
 last_price = info.get("regularMarketPrice")  # USD
 timestamp = info.get("regularMarketTime")
-date_fetched = datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp else datetime.now(timezone.utc)
+
+# Convert to UK timezone
+uk_tz = pytz.timezone("Europe/London")
+if timestamp:
+    date_fetched = datetime.fromtimestamp(timestamp, tz=timezone.utc).astimezone(uk_tz)
+else:
+    date_fetched = datetime.now(uk_tz)
 
 fx_ticker = yf.Ticker("GBPUSD=X")
 fx_info = fx_ticker.info
@@ -71,7 +77,6 @@ if prev_price_usd is None or prev_gbp_usd_rate is None:
 # 5) Compute totals & diffs
 # --------------------------
 shares = S27_SHARES_OWN
-
 P_prev = float(prev_price_usd)
 R_prev = float(prev_gbp_usd_rate)
 P_curr = float(last_price)
@@ -83,7 +88,7 @@ fx_effect_gbp = shares * P_prev * (1.0 / R_curr - 1.0 / R_prev)
 txn_date = date.today().isoformat()
 
 # --------------------------
-# 6) Safety check before creating transactions
+# 6) Create YNAB transactions
 # --------------------------
 MIN_GBP = 0.01  # Minimum threshold to log a transaction
 
@@ -99,7 +104,6 @@ else:
             "payee_name": "Stock",
             "memo": f"Price: USD {P_curr:.2f} DT: {date_fetched.strftime('%d/%m/%Y %H:%M')}"
         })
-
     if abs(fx_effect_gbp) >= MIN_GBP:
         transactions.append({
             "account_id": S27_INDEX_ACCOUNT_ID,
@@ -109,10 +113,9 @@ else:
             "memo": f"USD/GBP: {R_curr:.5f}"
         })
 
-    wrapper = PostTransactionsWrapper(transactions=transactions)
-
     with ynab.ApiClient(configuration) as api_client:
         transactions_api = ynab.TransactionsApi(api_client)
+        wrapper = PostTransactionsWrapper(transactions=transactions)
         try:
             response = transactions_api.create_transaction(BUDGET_ID, wrapper)
             print("Transactions successfully created:")
@@ -126,13 +129,17 @@ else:
 save_prev_values(PREV_FILE, last_price, gbp_usd_rate)
 
 # --------------------------
-# 8) Print summary
+# 8) Print summary & sanity check
 # --------------------------
+current_total_gbp = ((shares * last_price) / gbp_usd_rate)
+balance_diff = current_total_gbp - s27_account_balance_gbp
+
 print("\nSummary:")
 print(f"last_price (USD): {last_price}")
-print(f"date_fetched (UTC): {date_fetched.isoformat()}")
-print(f"total_value_usd: {shares * P_curr:.2f}")
-print(f"total_value_gbp: {shares * P_curr / R_curr:.2f}")
-print(f"current_ynab_gbp: {s27_account_balance_gbp:.2f}")
+print(f"date_fetched (UK): {date_fetched.isoformat()}")
 print(f"price_effect_gbp: {price_effect_gbp:.2f}")
-print(f"fx_effect_gbp: {fx_effect_gbp:.2f}")
+print(f"fx_effect_gbp: {fx_effect_gbp:.2f}\n")
+
+print(f"total_effect_gbp (price + FX): {(price_effect_gbp + fx_effect_gbp):.2f}")
+print(f"balance_diff (current - previous_total): {balance_diff:.2f}")
+print(f"Check: total_effect_gbp ≈ balance_diff? {abs((price_effect_gbp + fx_effect_gbp) - balance_diff) < 0.02}")
