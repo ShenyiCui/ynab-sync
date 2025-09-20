@@ -5,6 +5,26 @@ from ynab.models.post_transactions_wrapper import PostTransactionsWrapper
 import yfinance as yf
 from datetime import datetime, timezone, date
 import pytz
+import logging
+
+# --------------------------
+# 0) Setup logging
+# --------------------------
+MAIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # root dir
+LOG_FILE = os.path.join(MAIN_DIR, "logs/s27.log")
+
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.INFO,
+    format="%(asctime)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
+def log_print(*args, **kwargs):
+    """Print to console and log to file."""
+    msg = " ".join(str(a) for a in args)
+    print(msg, **kwargs)
+    logging.info(msg)
 
 # --------------------------
 # 0) Persistent storage
@@ -93,7 +113,7 @@ txn_date = date.today().isoformat()
 MIN_GBP = 0.01  # Minimum threshold to log a transaction
 
 if abs(price_effect_gbp) < MIN_GBP and abs(fx_effect_gbp) < MIN_GBP:
-    print("Both price and FX effects are negligible. No transactions created.")
+    log_print("Both price and FX effects are negligible. No transactions created.")
 else:
     transactions = []
     if abs(price_effect_gbp) >= MIN_GBP:
@@ -118,10 +138,10 @@ else:
         wrapper = PostTransactionsWrapper(transactions=transactions)
         try:
             response = transactions_api.create_transaction(BUDGET_ID, wrapper)
-            print("Transactions successfully created:")
-            print(response)
+            log_print("Transactions successfully created:")
+            log_print(response)
         except Exception as e:
-            print("Error creating transactions:", e)
+            log_print("Error creating transactions:", e)
 
 # --------------------------
 # 7) Save current values for next run
@@ -134,12 +154,18 @@ save_prev_values(PREV_FILE, last_price, gbp_usd_rate)
 current_total_gbp = ((shares * last_price) / gbp_usd_rate)
 balance_diff = current_total_gbp - s27_account_balance_gbp
 
-print("\nSummary:")
-print(f"last_price (USD): {last_price}")
-print(f"date_fetched (UK): {date_fetched.isoformat()}")
-print(f"price_effect_gbp: {price_effect_gbp:.2f}")
-print(f"fx_effect_gbp: {fx_effect_gbp:.2f}\n")
+log_print("\n------------------s27 index update start------------------")
+log_print("Summary:")
+log_print(f"last_price (USD): {last_price}")
+log_print(f"date_fetched (UK): {date_fetched.isoformat()}")
 
-print(f"total_effect_gbp (price + FX): {(price_effect_gbp + fx_effect_gbp):.2f}")
-print(f"balance_diff (current - previous_total): {balance_diff:.2f}")
-print(f"Check: total_effect_gbp ≈ balance_diff? {abs((price_effect_gbp + fx_effect_gbp) - balance_diff) < 0.02}")
+log_print(f"previous ynab balance: {s27_account_balance_gbp:.2f} GBP")
+log_print(f"new stock value: {current_total_gbp:.2f} GBP\n")
+
+log_print(f"price_effect_gbp: {price_effect_gbp:.2f}")
+log_print(f"fx_effect_gbp: {fx_effect_gbp:.2f}")
+log_print(f"total_effect_gbp (price + FX): {(price_effect_gbp + fx_effect_gbp):.2f}")
+log_print(f"balance_diff (current - previous_total): {balance_diff:.2f}")
+log_print(f"Check: total_effect_gbp ≈ balance_diff? {abs((price_effect_gbp + fx_effect_gbp) - balance_diff) < 0.02}")
+log_print("------------------s27 index update end------------------\n")
+
