@@ -1,0 +1,6 @@
+python-dotenv
+ynab-sdk
+yfinance
+pytz
+requests
+schedule
