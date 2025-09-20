@@ -123,11 +123,11 @@ def main():
             log_print("Trading212 total (GBP):", f"{t212_total_gbp:.2f}")
             log_print("YNAB recorded balance (GBP):", f"{ynab_balance_gbp:.2f}")
             log_print("Difference (Trading212 - YNAB) GBP:", f"{diff_gbp:.5f}")
-            
 
             # Only create a transaction if difference exceeds threshold
             if abs(diff_gbp) < MIN_GBP:
                 log_print("Difference below threshold. No transaction created.")
+                log_print("------------------Trading212 sync end------------------")
                 return
 
             # Create a single transaction to reflect the difference (payee "Stock", memo = UK datetime)
@@ -135,11 +135,11 @@ def main():
                 response = create_ynab_transaction(api_client, BUDGET_ID, TRADING_212_ACCOUNT_ID, diff_gbp, memo)
                 log_print("YNAB transaction created. Response:")
                 log_print(response)
+                log_print("------------------Trading212 sync end------------------")
             except Exception as e:
                 log_print("Error creating YNAB transaction:", e)
-                return
-            finally:
                 log_print("------------------Trading212 sync end------------------")
+                return                
 
     except Exception as e:
         log_print("YNAB API client error:", e)
